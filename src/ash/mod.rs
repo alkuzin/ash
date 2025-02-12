@@ -18,9 +18,8 @@
 
 mod utils;
 
-use libc::{execve, exit, fork, waitpid, EXIT_FAILURE, WIFEXITED, WIFSIGNALED, WUNTRACED};
-use utils::{get_username, get_hostname, get_cur_dir, find_executable};
-use std::{ffi::{CStr, CString}, io::{self, Write}, ptr::null};
+use libc::{execve, fork, waitpid, WIFEXITED, WIFSIGNALED, WUNTRACED};
+use std::{ffi::{CStr, CString}, io::{self, Write}, process, ptr::null};
 
 pub struct Shell {
     prompt:     String,
@@ -29,75 +28,92 @@ pub struct Shell {
 }
 
 impl Shell {
+    /// Constructs a new Shell object.
     pub fn new() -> Shell {
-        let username  = get_username();
-        let hostname  = get_hostname();
+        let username  = utils::get_username();
+        let hostname  = utils::get_hostname();
         let prompt    = format!("{}@{}", username, hostname);
         let home_path = format!("/home/{}", username);
-        let cur_dir   = get_cur_dir().replace(&home_path, "~");
+        let cur_dir   = utils::get_cur_dir().replace(&home_path, "~");
 
         Shell { prompt, home_path, cur_dir }
     }
 
+    /// Run shell loop.
     pub fn run(&self) {
         let mut input = String::new();
 
         loop {
+            // Display prompt
             print!("{}:{}$ ", self.prompt, self.cur_dir);
             let _ = io::stdout().flush();
 
+            // Read user input
             let _ = io::stdin()
                 .read_line(&mut input)
                 .expect("ash: error to read input");
 
+            // Split user input
             let mut args: Vec<*const i8> = input
                 .trim()
                 .split_whitespace()
                 .map(|x| CString::new(x).unwrap().into_raw() as *const i8)
                 .collect();
 
+            // Last argument should be null in order to make
+            // execve work correctly
             args.push(null());
-            input.clear();
 
             self.execute(&args);
+            input.clear();
         }
     }
 
+    /// Execute shell command.
+    ///
+    /// # Parameters
+    /// - `argv` - given vector of arguments.
     fn execute(&self, argv: &Vec<*const i8>) {
         let pid = unsafe { fork() };
 
         match pid {
-            // handle child process
+            // Handle child process
             0 => {
-                let exec = unsafe {CStr::from_ptr(argv[0])}
+                let exec = unsafe { CStr::from_ptr(argv[0]) }
                     .to_string_lossy()
                     .into_owned();
 
-                let path = find_executable(&exec).unwrap_or_else(|| {
+                let path = utils::find_executable(&exec).unwrap_or_else(|| {
                     eprintln!("ash: {}: command not found", exec.trim());
-                    unsafe { exit(EXIT_FAILURE) };
+                    process::exit(1);
                 });
 
-                let ret = unsafe { execve(path.as_ptr(), argv.as_ptr(), null()) };
+                let ret = unsafe {
+                    execve(path.as_ptr(), argv.as_ptr(), null())
+                };
 
                 if ret == -1 {
-                    eprintln!("ash: {}: command not found", exec.trim());
+                    eprintln!("ash: error to execute command");
+                    process::exit(1);
                 }
             },
-            // handle error
+            // Handle error
             -1 => {
-                eprintln!("ash: error to create new process");
-
-                unsafe {
-                    exit(EXIT_FAILURE);
-                }
+                eprintln!("ash: error to create a new process");
+                process::exit(1);
             },
-            // handle parent process
+            // Handle parent process
             _ => {
                 loop {
+                    // Exit status of child process
                     let mut status: i32 = 0;
+
+                    // WUNTRACED option allows the parent to receive
+                    // information about stopped child processes
                     let _ = unsafe { waitpid(pid, &mut status, WUNTRACED) };
 
+                    // Check if the child process has exited normally
+                    // or if it was terminated by a signal
                     if WIFEXITED(status) || WIFSIGNALED(status) {
                         break;
                     }

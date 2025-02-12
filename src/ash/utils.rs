@@ -19,7 +19,12 @@
 use libc::{gethostname, getlogin, getcwd};
 use std::{ffi::{CStr, CString}, env, fs};
 
-
+/// Get user login.
+///
+/// # Returns
+///
+/// - String representation of username - in case of success.
+/// - `"user"` - in case of failure.
 pub fn get_username() -> String {
     let login = unsafe { getlogin() };
 
@@ -28,12 +33,16 @@ pub fn get_username() -> String {
     }
 
     unsafe {
-        CStr::from_ptr(login)
-            .to_string_lossy()
-            .into_owned()
+        CStr::from_ptr(login).to_string_lossy().into_owned()
     }
 }
 
+/// Get hostname.
+///
+/// # Returns
+///
+/// - String representation of hostname - in case of success.
+/// - `"-"` - in case of failure.
 pub fn get_hostname() -> String {
     const SIZE: usize = 256;
     let mut name: [i8; SIZE] = [0; SIZE];
@@ -45,12 +54,16 @@ pub fn get_hostname() -> String {
     }
 
     unsafe {
-        CStr::from_ptr(name.as_mut_ptr())
-            .to_string_lossy()
-            .into_owned()
+        CStr::from_ptr(name.as_mut_ptr()).to_string_lossy().into_owned()
     }
 }
 
+/// Get current directory.
+///
+/// # Returns
+///
+/// - String representation of current directory - in case of success.
+/// - `"?"` - in case of failure.
 pub fn get_cur_dir() -> String {
     const SIZE: usize = 4096;
     let mut cwd: [i8; SIZE] = [0; SIZE];
@@ -61,17 +74,22 @@ pub fn get_cur_dir() -> String {
         return "?".to_string();
     }
 
-    let cur_dir = unsafe {
-        CStr::from_ptr(cwd.as_mut_ptr())
-            .to_string_lossy()
-            .into_owned()
-    };
-
-    cur_dir
+    unsafe {
+        CStr::from_ptr(cwd.as_mut_ptr()).to_string_lossy().into_owned()
+    }
 }
 
+/// Find executable path.
+///
+/// # Parameters
+/// - `command` - given command/potential executable name.
+///
+/// # Returns
+/// - CString representation of executable full path - in case of success.
+/// - `None` - in case of failure.
 pub fn find_executable(command: &str) -> Option<CString> {
-    let path = env::var("PATH").expect("find_executable error");
+    let path = env::var("PATH")
+        .expect("find_executable: error to get PATH variable");
 
     for dir in path.split(":") {
         let exec_path = format!("{}/{}", dir, command);
