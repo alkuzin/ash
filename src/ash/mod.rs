@@ -16,6 +16,7 @@
 
 //! Shell implementation.
 
+mod builtin;
 mod utils;
 
 use libc::{execve, fork, waitpid, WIFEXITED, WIFSIGNALED, WUNTRACED};
@@ -41,11 +42,16 @@ impl Shell {
 
     /// Run shell loop.
     pub fn run(&self) {
+
+        unsafe {
+            libc::signal(libc::SIGTERM, sigterm_handler as usize);
+        }
+
         let mut input = String::new();
 
         loop {
             // Display prompt
-            print!("{}:{}$ ", self.prompt, self.cur_dir);
+            print!("<{}>-<{}>$ ", self.prompt, self.cur_dir);
             let _ = io::stdout().flush();
 
             // Read user input
@@ -82,6 +88,15 @@ impl Shell {
                 let exec = unsafe { CStr::from_ptr(argv[0]) }
                     .to_string_lossy()
                     .into_owned();
+
+                // Check is given command builtin
+                match builtin::get_builtin(&exec) {
+                    Some(cmd) => {
+                        cmd(argv);
+                        process::exit(0);
+                    }
+                    None => {}
+                }
 
                 let path = utils::find_executable(&exec).unwrap_or_else(|| {
                     eprintln!("ash: {}: command not found", exec.trim());
@@ -121,4 +136,8 @@ impl Shell {
             },
         }
     }
+}
+
+extern "C" fn sigterm_handler() {
+    process::exit(0);
 }
